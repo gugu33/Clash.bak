@@ -1,12 +1,12 @@
 package process
 
 import (
-	"bytes"
 	"encoding/binary"
 	"net"
-	"path/filepath"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -94,12 +94,8 @@ func getExecPathFromPID(pid uint32) (string, error) {
 	if errno != 0 {
 		return "", errno
 	}
-	firstZero := bytes.IndexByte(buf, 0)
-	if firstZero <= 0 {
-		return "", nil
-	}
 
-	return filepath.Base(string(buf[:firstZero])), nil
+	return unix.ByteSliceToString(buf), nil
 }
 
 func readNativeUint32(b []byte) uint32 {

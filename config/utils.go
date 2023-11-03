@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dreamacro/clash/adapters/outboundgroup"
+	"github.com/Dreamacro/clash/adapter/outboundgroup"
 	"github.com/Dreamacro/clash/common/structure"
 )
 
@@ -18,13 +18,13 @@ func trimArr(arr []string) (r []string) {
 // Check if ProxyGroups form DAG(Directed Acyclic Graph), and sort all ProxyGroups by dependency order.
 // Meanwhile, record the original index in the config file.
 // If loop is detected, return an error with location of loop.
-func proxyGroupsDagSort(groupsConfig []map[string]interface{}) error {
+func proxyGroupsDagSort(groupsConfig []map[string]any) error {
 	type graphNode struct {
 		indegree int
 		// topological order
 		topo int
 		// the original data in `groupsConfig`
-		data map[string]interface{}
+		data map[string]any
 		// `outdegree` and `from` are used in loop locating
 		outdegree int
 		option    *outboundgroup.GroupCommonOption

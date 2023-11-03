@@ -3,12 +3,12 @@ package dns
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 
 	"github.com/Dreamacro/clash/component/dialer"
+	"github.com/Dreamacro/clash/component/resolver"
 
 	D "github.com/miekg/dns"
 )
@@ -28,13 +28,21 @@ func (dc *dohClient) Exchange(m *D.Msg) (msg *D.Msg, err error) {
 }
 
 func (dc *dohClient) ExchangeContext(ctx context.Context, m *D.Msg) (msg *D.Msg, err error) {
-	req, err := dc.newRequest(m)
+	// https://datatracker.ietf.org/doc/html/rfc8484#section-4.1
+	// In order to maximize cache friendliness, SHOULD use a DNS ID of 0 in every DNS request.
+	newM := *m
+	newM.Id = 0
+	req, err := dc.newRequest(&newM)
 	if err != nil {
 		return nil, err
 	}
 
 	req = req.WithContext(ctx)
-	return dc.doRequest(req)
+	msg, err = dc.doRequest(req)
+	if err == nil {
+		msg.Id = m.Id
+	}
+	return
 }
 
 // newRequest returns a new DoH request given a dns.Msg.
@@ -62,7 +70,7 @@ func (dc *dohClient) doRequest(req *http.Request) (msg *D.Msg, err error) {
 	}
 	defer resp.Body.Close()
 
-	buf, err := ioutil.ReadAll(resp.Body)
+	buf, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -71,11 +79,10 @@ func (dc *dohClient) doRequest(req *http.Request) (msg *D.Msg, err error) {
 	return msg, err
 }
 
-func newDoHClient(url string, r *Resolver) *dohClient {
+func newDoHClient(url, iface string, r *Resolver) *dohClient {
 	return &dohClient{
 		url: url,
 		transport: &http.Transport{
-			TLSClientConfig:   &tls.Config{ClientSessionCache: globalSessionCache},
 			ForceAttemptHTTP2: true,
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
@@ -83,12 +90,17 @@ func newDoHClient(url string, r *Resolver) *dohClient {
 					return nil, err
 				}
 
-				ip, err := r.ResolveIPv4(host)
+				ip, err := resolver.ResolveIPWithResolver(host, r)
 				if err != nil {
 					return nil, err
 				}
 
-				return dialer.DialContext(ctx, "tcp4", net.JoinHostPort(ip.String(), port))
+				options := []dialer.Option{}
+				if iface != "" {
+					options = append(options, dialer.WithInterface(iface))
+				}
+
+				return dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), port), options...)
 			},
 		},
 	}

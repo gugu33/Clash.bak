@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +28,10 @@ func findProcessName(network string, ip net.IP, srcPort int) (string, error) {
 			return
 		}
 	})
+
+	if defaultSearcher == nil {
+		return "", ErrPlatformNotSupport
+	}
 
 	var spath string
 	isTCP := network == TCP
@@ -73,7 +76,7 @@ func getExecPathFromPID(pid uint32) (string, error) {
 		return "", errno
 	}
 
-	return filepath.Base(string(buf[:size-1])), nil
+	return string(buf[:size-1]), nil
 }
 
 func readNativeUint32(b []byte) uint32 {
@@ -173,7 +176,7 @@ func (s *searcher) searchSocketPid(socket uint64) (uint32, error) {
 }
 
 func newSearcher(major int) *searcher {
-	var s *searcher = nil
+	var s *searcher
 	switch major {
 	case 11:
 		s = &searcher{
@@ -190,6 +193,8 @@ func newSearcher(major int) *searcher {
 			udpInpOffset: 8,
 		}
 	case 12:
+		fallthrough
+	case 13:
 		s = &searcher{
 			headSize:     64,
 			tcpItemSize:  744,

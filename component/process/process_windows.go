@@ -3,7 +3,6 @@ package process
 import (
 	"fmt"
 	"net"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -22,8 +21,8 @@ const (
 )
 
 var (
-	getExTcpTable uintptr
-	getExUdpTable uintptr
+	getExTCPTable uintptr
+	getExUDPTable uintptr
 	queryProcName uintptr
 
 	once sync.Once
@@ -35,12 +34,12 @@ func initWin32API() error {
 		return fmt.Errorf("LoadLibrary iphlpapi.dll failed: %s", err.Error())
 	}
 
-	getExTcpTable, err = windows.GetProcAddress(h, tcpTableFunc)
+	getExTCPTable, err = windows.GetProcAddress(h, tcpTableFunc)
 	if err != nil {
 		return fmt.Errorf("GetProcAddress of %s failed: %s", tcpTableFunc, err.Error())
 	}
 
-	getExUdpTable, err = windows.GetProcAddress(h, udpTableFunc)
+	getExUDPTable, err = windows.GetProcAddress(h, udpTableFunc)
 	if err != nil {
 		return fmt.Errorf("GetProcAddress of %s failed: %s", udpTableFunc, err.Error())
 	}
@@ -76,10 +75,10 @@ func findProcessName(network string, ip net.IP, srcPort int) (string, error) {
 	var fn uintptr
 	switch network {
 	case TCP:
-		fn = getExTcpTable
+		fn = getExTCPTable
 		class = tcpTablePidConn
 	case UDP:
-		fn = getExUdpTable
+		fn = getExUDPTable
 		class = udpTablePid
 	default:
 		return "", ErrInvalidNetwork
@@ -175,7 +174,7 @@ func newSearcher(isV4, isTCP bool) *searcher {
 func getTransportTable(fn uintptr, family int, class int) ([]byte, error) {
 	for size, buf := uint32(8), make([]byte, 8); ; {
 		ptr := unsafe.Pointer(&buf[0])
-		err, _, _ := syscall.Syscall6(fn, 6, uintptr(ptr), uintptr(unsafe.Pointer(&size)), 0, uintptr(family), uintptr(class), 0)
+		err, _, _ := syscall.SyscallN(fn, uintptr(ptr), uintptr(unsafe.Pointer(&size)), 0, uintptr(family), uintptr(class), 0)
 
 		switch err {
 		case 0:
@@ -210,15 +209,15 @@ func getExecPathFromPID(pid uint32) (string, error) {
 
 	buf := make([]uint16, syscall.MAX_LONG_PATH)
 	size := uint32(len(buf))
-	r1, _, err := syscall.Syscall6(
-		queryProcName, 4,
+	r1, _, err := syscall.SyscallN(
+		queryProcName,
 		uintptr(h),
 		uintptr(1),
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(unsafe.Pointer(&size)),
-		0, 0)
+	)
 	if r1 == 0 {
 		return "", err
 	}
-	return filepath.Base(syscall.UTF16ToString(buf[:size])), nil
+	return syscall.UTF16ToString(buf[:size]), nil
 }

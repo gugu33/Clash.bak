@@ -3,15 +3,17 @@ package route
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	C "github.com/Dreamacro/clash/constant"
+	_ "github.com/Dreamacro/clash/constant/mime"
 	"github.com/Dreamacro/clash/log"
 	"github.com/Dreamacro/clash/tunnel/statistic"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/render"
 	"github.com/gorilla/websocket"
@@ -81,10 +83,15 @@ func Start(addr string, secret string) {
 		})
 	}
 
-	log.Infoln("RESTful API listening at: %s", addr)
-	err := http.ListenAndServe(addr, r)
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Errorln("External controller error: %s", err.Error())
+		log.Errorln("External controller listen error: %s", err)
+		return
+	}
+	serverAddr = l.Addr().String()
+	log.Infoln("RESTful API listening at: %s", serverAddr)
+	if err = http.Serve(l, r); err != nil {
+		log.Errorln("External controller serve error: %s", err)
 	}
 }
 
@@ -108,10 +115,10 @@ func authentication(next http.Handler) http.Handler {
 		}
 
 		header := r.Header.Get("Authorization")
-		text := strings.SplitN(header, " ", 2)
+		bearer, token, found := strings.Cut(header, " ")
 
-		hasInvalidHeader := text[0] != "Bearer"
-		hasInvalidSecret := len(text) != 2 || text[1] != serverSecret
+		hasInvalidHeader := bearer != "Bearer"
+		hasInvalidSecret := !found || token != serverSecret
 		if hasInvalidHeader || hasInvalidSecret {
 			render.Status(r, http.StatusUnauthorized)
 			render.JSON(w, r, ErrUnauthorized)
@@ -201,16 +208,27 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 		render.Status(r, http.StatusOK)
 	}
 
+	ch := make(chan log.Event, 1024)
 	sub := log.Subscribe()
 	defer log.UnSubscribe(sub)
 	buf := &bytes.Buffer{}
-	var err error
-	for elm := range sub {
-		buf.Reset()
-		log := elm.(*log.Event)
+
+	go func() {
+		for elm := range sub {
+			log := elm.(log.Event)
+			select {
+			case ch <- log:
+			default:
+			}
+		}
+		close(ch)
+	}()
+
+	for log := range ch {
 		if log.LogLevel < level {
 			continue
 		}
+		buf.Reset()
 
 		if err := json.NewEncoder(buf).Encode(Log{
 			Type:    log.Type(),
@@ -219,6 +237,7 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		var err error
 		if wsConn == nil {
 			_, err = w.Write(buf.Bytes())
 			w.(http.Flusher).Flush()

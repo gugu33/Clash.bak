@@ -17,7 +17,8 @@ const (
 
 	HTTP Type = iota
 	HTTPCONNECT
-	SOCKS
+	SOCKS4
+	SOCKS5
 	REDIR
 	TPROXY
 )
@@ -43,7 +44,9 @@ func (t Type) String() string {
 		return "HTTP"
 	case HTTPCONNECT:
 		return "HTTP Connect"
-	case SOCKS:
+	case SOCKS4:
+		return "Socks4"
+	case SOCKS5:
 		return "Socks5"
 	case REDIR:
 		return "Redir"
@@ -60,14 +63,16 @@ func (t Type) MarshalJSON() ([]byte, error) {
 
 // Metadata is used to store connection address
 type Metadata struct {
-	NetWork  NetWork `json:"network"`
-	Type     Type    `json:"type"`
-	SrcIP    net.IP  `json:"sourceIP"`
-	DstIP    net.IP  `json:"destinationIP"`
-	SrcPort  string  `json:"sourcePort"`
-	DstPort  string  `json:"destinationPort"`
-	AddrType int     `json:"-"`
-	Host     string  `json:"host"`
+	NetWork     NetWork `json:"network"`
+	Type        Type    `json:"type"`
+	SrcIP       net.IP  `json:"sourceIP"`
+	DstIP       net.IP  `json:"destinationIP"`
+	SrcPort     string  `json:"sourcePort"`
+	DstPort     string  `json:"destinationPort"`
+	AddrType    int     `json:"-"`
+	Host        string  `json:"host"`
+	DNSMode     DNSMode `json:"dnsMode"`
+	ProcessPath string  `json:"processPath"`
 }
 
 func (m *Metadata) RemoteAddress() string {
@@ -82,14 +87,31 @@ func (m *Metadata) Resolved() bool {
 	return m.DstIP != nil
 }
 
+// Pure is used to solve unexpected behavior
+// when dialing proxy connection in DNSMapping mode.
+func (m *Metadata) Pure() *Metadata {
+	if m.DNSMode == DNSMapping && m.DstIP != nil {
+		copy := *m
+		copy.Host = ""
+		if copy.DstIP.To4() != nil {
+			copy.AddrType = AtypIPv4
+		} else {
+			copy.AddrType = AtypIPv6
+		}
+		return &copy
+	}
+
+	return m
+}
+
 func (m *Metadata) UDPAddr() *net.UDPAddr {
 	if m.NetWork != UDP || m.DstIP == nil {
 		return nil
 	}
-	port, _ := strconv.Atoi(m.DstPort)
+	port, _ := strconv.ParseUint(m.DstPort, 10, 16)
 	return &net.UDPAddr{
 		IP:   m.DstIP,
-		Port: port,
+		Port: int(port),
 	}
 }
 
